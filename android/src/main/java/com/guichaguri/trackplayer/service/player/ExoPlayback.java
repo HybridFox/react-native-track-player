@@ -2,17 +2,15 @@ package com.guichaguri.trackplayer.service.player;
 
 import android.content.Context;
 import android.support.v4.media.session.PlaybackStateCompat;
+import android.util.Log;
 import com.facebook.react.bridge.Promise;
 import com.google.android.exoplayer2.C;
 import com.google.android.exoplayer2.ExoPlaybackException;
 import com.google.android.exoplayer2.PlaybackParameters;
 import com.google.android.exoplayer2.Player;
 import com.google.android.exoplayer2.Player.EventListener;
-import com.google.android.exoplayer2.SimpleExoPlayer;
 import com.google.android.exoplayer2.Timeline;
 import com.google.android.exoplayer2.Timeline.Window;
-import com.google.android.exoplayer2.source.ConcatenatingMediaSource;
-import com.google.android.exoplayer2.source.MediaSource;
 import com.google.android.exoplayer2.source.TrackGroupArray;
 import com.google.android.exoplayer2.trackselection.TrackSelectionArray;
 import com.guichaguri.trackplayer.service.MusicManager;
@@ -26,96 +24,40 @@ import java.util.List;
 /**
  * @author Guichaguri
  */
-public class ExoPlayback implements EventListener {
+public abstract class ExoPlayback<T extends Player> implements EventListener {
 
-    private final Context context;
-    private final MusicManager manager;
-    private final SimpleExoPlayer player;
-    private final long cacheMaxSize;
+    protected final Context context;
+    protected final MusicManager manager;
+    protected final T player;
 
-    private ConcatenatingMediaSource source;
-    private List<Track> queue = Collections.synchronizedList(new ArrayList<>());
+    protected List<Track> queue = Collections.synchronizedList(new ArrayList<>());
 
     // https://github.com/google/ExoPlayer/issues/2728
-    private int lastKnownWindow = C.INDEX_UNSET;
-    private long lastKnownPosition = C.POSITION_UNSET;
-    private int previousState = PlaybackStateCompat.STATE_NONE;
+    protected int lastKnownWindow = C.INDEX_UNSET;
+    protected long lastKnownPosition = C.POSITION_UNSET;
+    protected int previousState = PlaybackStateCompat.STATE_NONE;
 
-    public ExoPlayback(Context context, MusicManager manager, SimpleExoPlayer player, long maxCacheSize) {
+    public ExoPlayback(Context context, MusicManager manager, T player) {
         this.context = context;
         this.manager = manager;
         this.player = player;
-        this.cacheMaxSize = maxCacheSize;
-
-        player.addListener(this);
-        resetQueue();
     }
 
-    private void resetQueue() {
-        queue.clear();
-
-        source = new ConcatenatingMediaSource();
-        player.prepare(source);
-
-        lastKnownWindow = C.INDEX_UNSET;
-        lastKnownPosition = C.POSITION_UNSET;
-
-        manager.onReset();
+    public void initialize() {
+        player.addListener(this);
     }
 
     public List<Track> getQueue() {
         return queue;
     }
 
-    public void add(Track track, int index, Promise promise) {
-        queue.add(index, track);
-        source.addMediaSource(index, track.toMediaSource(context, cacheMaxSize), Utils.toRunnable(promise));
+    public abstract void add(Track track, int index, Promise promise);
 
-        if (queue.size() == 1) {
-            player.prepare(source);
-        }
-    }
+    public abstract void add(Collection<Track> tracks, int index, Promise promise);
 
-    public void add(Collection<Track> tracks, int index, Promise promise) {
-        List<MediaSource> trackList = new ArrayList<>();
+    public abstract void remove(List<Integer> indexes, Promise promise);
 
-        for(Track track : tracks) {
-            trackList.add(track.toMediaSource(context, cacheMaxSize));
-        }
-
-        queue.addAll(index, tracks);
-        source.addMediaSources(index, trackList, Utils.toRunnable(promise));
-
-        if (queue.size() == tracks.size()) {
-            player.prepare(source);
-        }
-    }
-
-    public void remove(List<Integer> indexes, Promise promise) {
-        Collections.sort(indexes);
-
-        for(int i = indexes.size() - 1; i >= 0; i--) {
-            int index = indexes.get(i);
-
-            queue.remove(index);
-
-            if(i == 0) {
-                source.removeMediaSource(index, Utils.toRunnable(promise));
-            } else {
-                source.removeMediaSource(index, null);
-            }
-        }
-    }
-
-    public void removeUpcomingTracks() {
-        int currentIndex = player.getCurrentWindowIndex();
-        if (currentIndex == C.INDEX_UNSET) return;
-
-        for (int i = queue.size() - 1; i > currentIndex; i--) {
-            queue.remove(i);
-            source.removeMediaSource(i, null);
-        }
-    }
+    public abstract void removeUpcomingTracks();
 
     public Track getCurrentTrack() {
         int index = player.getCurrentWindowIndex();
@@ -123,6 +65,11 @@ public class ExoPlayback implements EventListener {
     }
 
     public void skip(String id, Promise promise) {
+        if(id == null || id.isEmpty()) {
+            promise.reject("invalid_id", "The ID can't be null or empty");
+            return;
+        }
+
         for(int i = 0; i < queue.size(); i++) {
             if(id.equals(queue.get(i).id)) {
                 lastKnownWindow = player.getCurrentWindowIndex();
@@ -176,12 +123,20 @@ public class ExoPlayback implements EventListener {
     }
 
     public void stop() {
+        lastKnownWindow = player.getCurrentWindowIndex();
+        lastKnownPosition = player.getCurrentPosition();
+
         player.stop(false);
+        player.setPlayWhenReady(false);
+        player.seekTo(0,0);
     }
 
     public void reset() {
+        lastKnownWindow = player.getCurrentWindowIndex();
+        lastKnownPosition = player.getCurrentPosition();
+
         player.stop(true);
-        resetQueue();
+        player.setPlayWhenReady(false);
     }
 
     public boolean isRemote() {
@@ -201,16 +156,15 @@ public class ExoPlayback implements EventListener {
     }
 
     public void seekTo(long time) {
+        lastKnownWindow = player.getCurrentWindowIndex();
+        lastKnownPosition = player.getCurrentPosition();
+
         player.seekTo(time);
     }
 
-    public float getVolume() {
-        return player.getVolume();
-    }
+    public abstract float getVolume();
 
-    public void setVolume(float volume) {
-        player.setVolume(volume);
-    }
+    public abstract void setVolume(float volume);
 
     public float getRate() {
         return player.getPlaybackParameters().speed;
@@ -223,7 +177,7 @@ public class ExoPlayback implements EventListener {
     public int getState() {
         switch(player.getPlaybackState()) {
             case Player.STATE_BUFFERING:
-                return player.getPlayWhenReady() ? PlaybackStateCompat.STATE_BUFFERING : PlaybackStateCompat.STATE_NONE;
+                return player.getPlayWhenReady() ? PlaybackStateCompat.STATE_BUFFERING : PlaybackStateCompat.STATE_PAUSED;
             case Player.STATE_ENDED:
                 return PlaybackStateCompat.STATE_STOPPED;
             case Player.STATE_IDLE:
@@ -240,13 +194,17 @@ public class ExoPlayback implements EventListener {
 
     @Override
     public void onTimelineChanged(Timeline timeline, Object manifest, int reason) {
-        if ((reason == Player.TIMELINE_CHANGE_REASON_PREPARED || reason == Player.TIMELINE_CHANGE_REASON_DYNAMIC) && !timeline.isEmpty()) {
-            onPositionDiscontinuity(Player.DISCONTINUITY_REASON_PERIOD_TRANSITION);
+        Log.d(Utils.LOG, "onTimelineChanged: " + reason);
+
+        if((reason == Player.TIMELINE_CHANGE_REASON_PREPARED || reason == Player.TIMELINE_CHANGE_REASON_DYNAMIC) && !timeline.isEmpty()) {
+            onPositionDiscontinuity(Player.DISCONTINUITY_REASON_INTERNAL);
         }
     }
 
     @Override
     public void onPositionDiscontinuity(int reason) {
+        Log.d(Utils.LOG, "onPositionDiscontinuity: " + reason);
+
         if(lastKnownWindow != player.getCurrentWindowIndex()) {
             Track previous = lastKnownWindow == C.INDEX_UNSET ? null : queue.get(lastKnownWindow);
             Track next = getCurrentTrack();
@@ -291,10 +249,10 @@ public class ExoPlayback implements EventListener {
 
             manager.onStateChange(state);
             previousState = state;
-        }
 
-        if (player.getPlaybackState() == Player.STATE_ENDED) {
-            manager.onEnd(getCurrentTrack(), getPosition());
+            if(state == PlaybackStateCompat.STATE_STOPPED) {
+                manager.onEnd(getCurrentTrack(), getPosition());
+            }
         }
     }
 
@@ -310,7 +268,17 @@ public class ExoPlayback implements EventListener {
 
     @Override
     public void onPlayerError(ExoPlaybackException error) {
-        manager.onError("exoplayer", error.getCause().getMessage());
+        String code;
+
+        if(error.type == ExoPlaybackException.TYPE_SOURCE) {
+            code = "playback-source";
+        } else if(error.type == ExoPlaybackException.TYPE_RENDERER) {
+            code = "playback-renderer";
+        } else {
+            code = "playback"; // Other unexpected errors related to the playback
+        }
+
+        manager.onError(code, error.getCause().getMessage());
     }
 
     @Override
