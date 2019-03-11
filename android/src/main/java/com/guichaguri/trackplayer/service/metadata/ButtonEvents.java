@@ -24,11 +24,13 @@ public class ButtonEvents extends MediaSessionCompat.Callback {
 
     @Override
     public void onPlay() {
+        System.out.println("ONPLAY");
         service.emit(MusicEvents.BUTTON_PLAY, null);
     }
 
     @Override
     public void onPause() {
+        System.out.println("ONPAUSE");
         service.emit(MusicEvents.BUTTON_PAUSE, null);
     }
 

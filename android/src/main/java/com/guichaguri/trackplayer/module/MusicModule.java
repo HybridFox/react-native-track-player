@@ -152,12 +152,19 @@ public class MusicModule extends ReactContextBaseJavaModule implements ServiceCo
 
     @ReactMethod
     public void updateMetadata(ReadableMap track) {
-        final Bundle trackBundle = Arguments.toBundle(track);
-        Track convertedTrack = new Track(getReactApplicationContext(), trackBundle, binder.getRatingType());
-        
-        waitForConnection(() -> {
-            binder.updateMetadata(convertedTrack);
-        });
+        try {
+            if(binder != null) {
+                final Bundle trackBundle = Arguments.toBundle(track);
+                Track convertedTrack = new Track(getReactApplicationContext(), trackBundle, binder.getRatingType());
+                
+                waitForConnection(() -> {
+                    binder.updateMetadata(convertedTrack);
+                });
+            }
+        } catch(Exception ex) {
+            // This method shouldn't be throwing unhandled errors even if something goes wrong.
+            Log.e(Utils.LOG, "An error occurred while updating metadata", ex);
+        }
     }
 
     @ReactMethod

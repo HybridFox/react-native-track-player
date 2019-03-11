@@ -102,29 +102,19 @@ public class MetadataManager {
         actions = 0;
         compactActions = 0;
 
+        System.out.println(capabilities);
+
         if(capabilities != null) {
             // Create the actions mask
-            for(int cap : capabilities) actions |= cap;
 
             // If there is no notification capabilities defined, we'll show all capabilities available
             if(notification == null) notification = capabilities;
 
             // Initialize all actions based on the options
-
-            previousAction = createAction(notification, PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS, "Previous",
-                    getIcon(options, "previousIcon", R.drawable.previous));
-            rewindAction = createAction(notification, PlaybackStateCompat.ACTION_REWIND, "Rewind",
-                    getIcon(options, "rewindIcon", R.drawable.rewind));
             playAction = createAction(notification, PlaybackStateCompat.ACTION_PLAY, "Play",
                     getIcon(options, "playIcon", R.drawable.play));
             pauseAction = createAction(notification, PlaybackStateCompat.ACTION_PAUSE, "Pause",
                     getIcon(options, "pauseIcon", R.drawable.pause));
-            stopAction = createAction(notification, PlaybackStateCompat.ACTION_STOP, "Stop",
-                    getIcon(options, "stopIcon", R.drawable.stop));
-            forwardAction = createAction(notification, PlaybackStateCompat.ACTION_FAST_FORWARD, "Forward",
-                    getIcon(options, "forwardIcon", R.drawable.forward));
-            nextAction = createAction(notification, PlaybackStateCompat.ACTION_SKIP_TO_NEXT, "Next",
-                    getIcon(options, "nextIcon", R.drawable.next));
 
             // Update the action mask for the compact view
             if(compact != null) {
